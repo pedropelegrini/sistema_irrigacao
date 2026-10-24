@@ -19,12 +19,24 @@ def conectar():
 def inicializar_banco():
     """Cria a tabela de medições caso ainda não exista."""
     with conectar() as conexao:
+        cursor = conexao.cursor()
+
         conexao.execute("""
             CREATE TABLE IF NOT EXISTS medicoes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sensor_id TEXT NOT NULL,
                 umidade_solo REAL NOT NULL,
                 temperatura_solo REAL NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dados_meteorologicos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                temperatura_ar REAL NOT NULL,
+                umidade_relativa REAL NOT NULL,
+                precipitacao REAL NOT NULL,
+                velocidade_vento REAL NOT NULL,
                 timestamp TEXT NOT NULL
             )
         """)
@@ -66,6 +78,56 @@ def salvar_medicao(medicao):
             VALUES (?, ?, ?, ?)
         """, (sensor_id, umidade, temperatura, timestamp))
 
+
+
+def salvar_dados_meteorologicos(dados):
+    """Valida e salva uma observação meteorológica no SQLite."""
+
+    temperatura = dados.get("temperatura_ar")
+    umidade = dados.get("umidade_relativa")
+    precipitacao = dados.get("precipitacao")
+    vento = dados.get("velocidade_vento")
+    timestamp = dados.get("timestamp")
+
+    valores_numericos = [
+        temperatura,
+        umidade,
+        precipitacao,
+        vento
+    ]
+
+    if any(
+        not isinstance(valor, (int, float)) or isinstance(valor, bool)
+        for valor in valores_numericos
+    ):
+        raise ValueError("Os dados meteorológicos devem ser numéricos.")
+
+    if not 0 <= umidade <= 100:
+        raise ValueError("A umidade relativa deve estar entre 0 e 100%.")
+
+    if precipitacao < 0 or vento < 0:
+        raise ValueError("Precipitação e velocidade do vento não podem ser negativas.")
+
+    if not isinstance(timestamp, str) or not timestamp.strip():
+        raise ValueError("Data e hora meteorológicas inválidas.")
+
+    with conectar() as conexao:
+        conexao.execute("""
+            INSERT INTO dados_meteorologicos (
+                temperatura_ar,
+                umidade_relativa,
+                precipitacao,
+                velocidade_vento,
+                timestamp
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            temperatura,
+            umidade,
+            precipitacao,
+            vento,
+            timestamp
+        ))
 
 if __name__ == "__main__":
     inicializar_banco()

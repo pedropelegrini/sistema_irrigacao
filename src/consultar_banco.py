@@ -32,3 +32,20 @@ def consultar_medicoes():
 
 if __name__ == "__main__":
     consultar_medicoes()
+
+from banco_dados import conectar
+
+with conectar() as conexao:
+    cursor = conexao.cursor()
+
+    cursor.execute("""
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+    """)
+
+    tabelas = cursor.fetchall()
+
+    print("\nTabelas existentes no banco:")
+    for tabela in tabelas:
+        print(tabela[0])
