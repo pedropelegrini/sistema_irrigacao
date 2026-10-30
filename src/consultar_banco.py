@@ -1,6 +1,4 @@
-
 from banco_dados import conectar
-
 
 def consultar_medicoes():
     with conectar() as conexao:
@@ -33,7 +31,6 @@ def consultar_medicoes():
 if __name__ == "__main__":
     consultar_medicoes()
 
-from banco_dados import conectar
 
 with conectar() as conexao:
     cursor = conexao.cursor()
@@ -49,3 +46,23 @@ with conectar() as conexao:
     print("\nTabelas existentes no banco:")
     for tabela in tabelas:
         print(tabela[0])
+
+
+with conectar() as conexao:
+    cursor = conexao.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM dados_meteorologicos
+        ORDER BY id DESC
+        LIMIT 5
+    """)
+
+    registros = cursor.fetchall()
+
+    print("\nÚltimos registros meteorológicos:")
+
+    for registro in registros:
+        print(registro)
+
+    print(f"\nTotal de registros meteorológicos: {len(registros)}")
