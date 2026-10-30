@@ -41,6 +41,12 @@ def inicializar_banco():
             )
         """)
 
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+            idx_meteorologia_timestamp
+            ON dados_meteorologicos(timestamp)
+        """)
+
 
 def salvar_medicao(medicao):
     """Valida e salva uma medição recebida."""
@@ -112,8 +118,8 @@ def salvar_dados_meteorologicos(dados):
         raise ValueError("Data e hora meteorológicas inválidas.")
 
     with conectar() as conexao:
-        conexao.execute("""
-            INSERT INTO dados_meteorologicos (
+        cursor = conexao.execute("""
+            INSERT OR IGNORE INTO dados_meteorologicos (
                 temperatura_ar,
                 umidade_relativa,
                 precipitacao,
@@ -128,6 +134,8 @@ def salvar_dados_meteorologicos(dados):
             vento,
             timestamp
         ))
+
+        return cursor.rowcount > 0
 
 if __name__ == "__main__":
     inicializar_banco()
