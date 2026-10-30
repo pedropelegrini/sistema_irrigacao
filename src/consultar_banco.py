@@ -66,3 +66,44 @@ with conectar() as conexao:
         print(registro)
 
     print(f"\nTotal de registros meteorológicos: {len(registros)}")
+
+
+
+with conectar() as conexao:
+    cursor = conexao.cursor()
+
+    print("\n===== DIAGNÓSTICO TEMPORAL =====")
+
+    # Dados dos sensores
+    cursor.execute("""
+        SELECT
+            COUNT(*),
+            MIN(timestamp),
+            MAX(timestamp)
+        FROM medicoes
+    """)
+
+    sensores = cursor.fetchone()
+
+    print("\nMEDIÇÕES DOS SENSORES")
+    print(f"Total: {sensores[0]}")
+    print(f"Primeira medição: {sensores[1]}")
+    print(f"Última medição: {sensores[2]}")
+
+    # Dados meteorológicos
+    cursor.execute("""
+        SELECT
+            COUNT(*),
+            MIN(timestamp),
+            MAX(timestamp)
+        FROM dados_meteorologicos
+    """)
+
+    clima = cursor.fetchone()
+
+    print("\nDADOS METEOROLÓGICOS")
+    print(f"Total: {clima[0]}")
+    print(f"Primeira observação: {clima[1]}")
+    print(f"Última observação: {clima[2]}")
+
+    print("\n===== FIM DO DIAGNÓSTICO =====")

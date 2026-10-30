@@ -5,7 +5,7 @@ import paho.mqtt.client as mqtt
 
 from banco_dados import inicializar_banco, salvar_medicao
 
-BROKER = "test.mosquitto.org"
+BROKER = "broker.hivemq.com"
 PORTA = 1883
 TOPICO = "univesp/irrigacao/votuporanga/sensores"
 

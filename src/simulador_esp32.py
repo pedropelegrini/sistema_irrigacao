@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-BROKER = "test.mosquitto.org"
+BROKER = "broker.hivemq.com"
 PORTA = 1883
 TOPICO = "univesp/irrigacao/votuporanga/sensores"
 
