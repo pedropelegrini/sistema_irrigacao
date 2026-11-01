@@ -1,14 +1,20 @@
-import sqlite3
+
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# Caminho do banco de dados
+
+# ============================================================
+# 1. CONFIGURAÇÕES
+# ============================================================
+
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
-CAMINHO_BANCO = RAIZ_PROJETO / "data" / "irrigacao.db"
-FUSO_HORARIO = "America/Sao_Paulo"
+
+CAMINHO_CSV = (
+    RAIZ_PROJETO / "data" / "base_integrada.csv"
+)
 
 st.set_page_config(
     page_title="Sistema Inteligente de Irrigação",
@@ -17,279 +23,338 @@ st.set_page_config(
 )
 
 
-@st.cache_data(ttl=5)
-def carregar_medicoes():
-    """Carrega medições físicas e simuladas do SQLite."""
-    with sqlite3.connect(CAMINHO_BANCO) as conexao:
-        df = pd.read_sql_query("""
-            SELECT
-                id,
-                sensor_id,
-                umidade_solo,
-                temperatura_solo,
-                timestamp,
-                adc,
-                origem
-            FROM medicoes
-            ORDER BY timestamp ASC, id ASC
-        """, conexao)
+# ============================================================
+# 2. CARREGAMENTO DOS DADOS HISTÓRICOS
+# ============================================================
 
-    if not df.empty:
-        df["timestamp"] = pd.to_datetime(
-            df["timestamp"], utc=True, errors="coerce"
-        ).dt.tz_convert(FUSO_HORARIO)
-        df = df.dropna(subset=["timestamp"])
-        df["origem"] = df["origem"].fillna("SIMULADO")
+@st.cache_data
+def carregar_dados():
 
-    return df
-
-
-@st.cache_data(ttl=5)
-def carregar_meteorologia():
-    """Carrega observações meteorológicas do SQLite."""
-    with sqlite3.connect(CAMINHO_BANCO) as conexao:
-        df = pd.read_sql_query("""
-            SELECT
-                id,
-                temperatura_ar,
-                umidade_relativa,
-                precipitacao,
-                velocidade_vento,
-                timestamp
-            FROM dados_meteorologicos
-            ORDER BY timestamp ASC, id ASC
-        """, conexao)
-
-    if not df.empty:
-        df["timestamp"] = pd.to_datetime(
-            df["timestamp"], errors="coerce"
+    if not CAMINHO_CSV.exists():
+        raise FileNotFoundError(
+            f"Base integrada não encontrada: {CAMINHO_CSV}"
         )
-        df["timestamp"] = df["timestamp"].dt.tz_localize(
-            FUSO_HORARIO, ambiguous="NaT", nonexistent="NaT"
-        )
-        df = df.dropna(subset=["timestamp"])
 
-    return df
+    df = pd.read_csv(CAMINHO_CSV)
 
+    df["intervalo"] = pd.to_datetime(
+        df["intervalo"],
+        errors="coerce"
+    )
+
+    df = df.dropna(subset=["intervalo"])
+
+    return df.sort_values("intervalo")
+
+
+try:
+    df = carregar_dados()
+
+except Exception as erro:
+    st.error(f"Erro ao carregar os dados: {erro}")
+    st.stop()
+
+
+# ============================================================
+# 3. CABEÇALHO
+# ============================================================
 
 st.title("🌱 Sistema Inteligente de Irrigação")
+
 st.caption(
     "Monitoramento do solo, condições meteorológicas "
-    "e histórico de medições"
+    "e análise integrada de dados — Votuporanga/SP"
 )
 
-if st.button("Atualizar dados"):
-    carregar_medicoes.clear()
-    carregar_meteorologia.clear()
+st.info(
+    "Demonstração acadêmica com dados históricos coletados "
+    "pelo sistema IoT. Os indicadores não representam "
+    "monitoramento em tempo real."
+)
 
-df_completo = carregar_medicoes()
-df_clima = carregar_meteorologia()
+
+# ============================================================
+# 4. FILTRO TEMPORAL
+# ============================================================
 
 st.sidebar.header("Filtros")
-opcoes_origem = ["Todas", "ESP32_REAL", "SIMULADO"]
-filtro_origem = st.sidebar.selectbox(
-    "Origem das medições do solo",
-    opcoes_origem,
-    index=1
+
+data_min = df["intervalo"].min().date()
+data_max = df["intervalo"].max().date()
+
+periodo = st.sidebar.date_input(
+    "Período de análise",
+    value=(data_min, data_max),
+    min_value=data_min,
+    max_value=data_max
 )
 
-if filtro_origem == "Todas":
-    df = df_completo.copy()
-else:
-    df = df_completo[df_completo["origem"] == filtro_origem].copy()
+if len(periodo) == 2:
+
+    inicio, fim = periodo
+
+    df = df[
+        (df["intervalo"].dt.date >= inicio)
+        & (df["intervalo"].dt.date <= fim)
+    ].copy()
+
+
+if df.empty:
+    st.warning("Não existem registros para o período selecionado.")
+    st.stop()
+
+
+# ============================================================
+# 5. INDICADORES DO SOLO
+# ============================================================
 
 st.header("Monitoramento do solo")
 
-if df.empty:
-    st.warning("Não há medições para o filtro selecionado.")
-else:
-    ultima_medicao = df.iloc[-1]
-    col1, col2, col3, col4 = st.columns(4)
+ultima = df.iloc[-1]
 
-    col1.metric("Umidade do solo", f"{ultima_medicao['umidade_solo']:.1f}%")
-    col2.metric(
-        "Temperatura do solo",
-        "Não medida" if pd.isna(ultima_medicao["temperatura_solo"])
-        else f"{ultima_medicao['temperatura_solo']:.1f} °C"
-    )
-    col3.metric("Medições exibidas", f"{len(df):,}".replace(",", "."))
-    col4.metric("Dispositivos", str(df["sensor_id"].nunique()))
+col1, col2, col3, col4 = st.columns(4)
 
-    st.caption(
-        f"Origem selecionada: {filtro_origem}. "
-        f"Última medição: {ultima_medicao['timestamp'].strftime('%d/%m/%Y %H:%M:%S')}."
-    )
+col1.metric(
+    "Umidade média do solo",
+    f"{df['umidade_solo_media'].mean():.2f}%"
+)
 
-    st.subheader("Histórico de umidade do solo")
-    fig_umidade = px.line(
-        df,
-        x="timestamp",
-        y="umidade_solo",
-        color="sensor_id",
-        line_dash="origem",
-        labels={
-            "timestamp": "Data e hora",
-            "umidade_solo": "Umidade do solo (%)",
-            "sensor_id": "Dispositivo",
-            "origem": "Origem"
-        }
-    )
-    fig_umidade.update_layout(hovermode="x unified")
-    st.plotly_chart(fig_umidade, use_container_width=True)
+col2.metric(
+    "Menor umidade média",
+    f"{df['umidade_solo_media'].min():.2f}%"
+)
 
-    df_adc = df.dropna(subset=["adc"])
-    if not df_adc.empty:
-        st.subheader("Sinal bruto do sensor (ADC)")
-        fig_adc = px.line(
-            df_adc,
-            x="timestamp",
-            y="adc",
-            color="sensor_id",
-            labels={
-                "timestamp": "Data e hora",
-                "adc": "Leitura ADC (0 a 4095)",
-                "sensor_id": "Dispositivo"
-            }
-        )
-        fig_adc.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_adc, use_container_width=True)
+col3.metric(
+    "Maior umidade média",
+    f"{df['umidade_solo_media'].max():.2f}%"
+)
 
-    df_temp_solo = df.dropna(subset=["temperatura_solo"])
-    if not df_temp_solo.empty:
-        st.subheader("Histórico de temperatura do solo")
-        fig_temp_solo = px.line(
-            df_temp_solo,
-            x="timestamp",
-            y="temperatura_solo",
-            color="sensor_id",
-            labels={
-                "timestamp": "Data e hora",
-                "temperatura_solo": "Temperatura do solo (°C)",
-                "sensor_id": "Dispositivo"
-            }
-        )
-        fig_temp_solo.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_temp_solo, use_container_width=True)
-    else:
-        st.info(
-            "Temperatura do solo não está sendo medida pelo sensor atual. "
-            "Nenhum valor foi estimado ou preenchido."
-        )
+col4.metric(
+    "Medições físicas integradas",
+    f"{int(df['quantidade_medicoes'].sum()):,}".replace(",", ".")
+)
 
-    st.subheader("Resumo estatístico do solo")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("**Umidade do solo**")
-        st.write(f"Média: {df['umidade_solo'].mean():.2f}%")
-        st.write(f"Mínima: {df['umidade_solo'].min():.2f}%")
-        st.write(f"Máxima: {df['umidade_solo'].max():.2f}%")
-    with col2:
-        st.write("**Leitura ADC**")
-        if not df_adc.empty:
-            st.write(f"Média: {df_adc['adc'].mean():.1f}")
-            st.write(f"Mínima: {df_adc['adc'].min():.0f}")
-            st.write(f"Máxima: {df_adc['adc'].max():.0f}")
-        else:
-            st.write("Não disponível para os registros selecionados.")
+st.caption(
+    f"Último intervalo: "
+    f"{ultima['intervalo'].strftime('%d/%m/%Y %H:%M')}"
+)
 
-    st.subheader("Últimas medições do solo")
-    colunas_tabela = [
-        "timestamp", "sensor_id", "origem",
-        "umidade_solo", "adc", "temperatura_solo"
-    ]
-    st.dataframe(
-        df.sort_values("timestamp", ascending=False)[colunas_tabela].head(30),
-        hide_index=True,
-        use_container_width=True
-    )
+
+# ============================================================
+# 6. EVOLUÇÃO DA UMIDADE DO SOLO
+# ============================================================
+
+st.subheader("Evolução temporal da umidade do solo")
+
+fig_umidade = px.line(
+    df,
+    x="intervalo",
+    y="umidade_solo_media",
+    markers=True,
+    title="Umidade média estimada do solo",
+    labels={
+        "intervalo": "Data e horário",
+        "umidade_solo_media": "Umidade estimada (%)"
+    }
+)
+
+fig_umidade.update_layout(
+    template="plotly_white",
+    hovermode="x unified"
+)
+
+st.plotly_chart(
+    fig_umidade,
+    use_container_width=True
+)
+
+
+# ============================================================
+# 7. LEITURAS ADC
+# ============================================================
+
+st.subheader("Sinal do sensor de umidade (ADC)")
+
+fig_adc = px.line(
+    df,
+    x="intervalo",
+    y="adc_medio",
+    markers=True,
+    title="Evolução das leituras médias ADC",
+    labels={
+        "intervalo": "Data e horário",
+        "adc_medio": "Leitura média ADC"
+    }
+)
+
+fig_adc.update_layout(
+    template="plotly_white",
+    hovermode="x unified"
+)
+
+st.plotly_chart(
+    fig_adc,
+    use_container_width=True
+)
+
+
+# ============================================================
+# 8. CONDIÇÕES METEOROLÓGICAS
+# ============================================================
 
 st.divider()
+
 st.header("🌤️ Condições meteorológicas de Votuporanga")
 
-if df_clima.empty:
-    st.warning("Ainda não existem observações meteorológicas armazenadas.")
-else:
-    ultimo_clima = df_clima.iloc[-1]
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Temperatura do ar", f"{ultimo_clima['temperatura_ar']:.1f} °C")
-    col2.metric("Umidade relativa do ar", f"{ultimo_clima['umidade_relativa']:.1f}%")
-    col3.metric("Precipitação", f"{ultimo_clima['precipitacao']:.1f} mm")
-    col4.metric("Velocidade do vento", f"{ultimo_clima['velocidade_vento']:.1f} km/h")
+col1, col2, col3, col4 = st.columns(4)
 
-    st.caption(
-        "Última observação meteorológica: "
-        f"{ultimo_clima['timestamp'].strftime('%d/%m/%Y %H:%M')}"
-    )
+col1.metric(
+    "Temperatura média do ar",
+    f"{df['temperatura_ar'].mean():.1f} °C"
+)
 
-    agora_local = pd.Timestamp.now(tz=FUSO_HORARIO)
-    idade_horas = (agora_local - ultimo_clima["timestamp"]).total_seconds() / 3600
-    if idade_horas > 2:
-        st.warning(
-            f"Atenção: a observação meteorológica exibida tem "
-            f"{idade_horas:.1f} horas. Atualize o coletor meteorológico "
-            "antes de usar esses dados como condição atual."
-        )
+col2.metric(
+    "Umidade relativa média",
+    f"{df['umidade_relativa'].mean():.1f}%"
+)
 
-    for coluna, titulo, eixo in [
-        ("temperatura_ar", "Histórico de temperatura do ar", "Temperatura (°C)"),
-        ("umidade_relativa", "Histórico de umidade relativa do ar", "Umidade relativa (%)"),
-        ("precipitacao", "Histórico de precipitação", "Precipitação (mm)")
-    ]:
-        st.subheader(titulo)
-        if coluna == "precipitacao":
-            figura = px.bar(
-                df_clima, x="timestamp", y=coluna,
-                labels={"timestamp": "Data e hora", coluna: eixo}
-            )
-        else:
-            figura = px.line(
-                df_clima, x="timestamp", y=coluna, markers=True,
-                labels={"timestamp": "Data e hora", coluna: eixo}
-            )
-        st.plotly_chart(figura, use_container_width=True)
+col3.metric(
+    "Precipitação acumulada",
+    f"{df['precipitacao'].sum():.1f} mm"
+)
 
-    st.subheader("Últimas observações meteorológicas")
-    st.dataframe(
-        df_clima.sort_values("timestamp", ascending=False).head(20),
-        hide_index=True,
-        use_container_width=True
-    )
+col4.metric(
+    "Velocidade média do vento",
+    f"{df['velocidade_vento'].mean():.1f} km/h"
+)
 
-if not df.empty and not df_clima.empty:
-    st.divider()
-    st.header("Comparação exploratória: umidade do solo e do ar")
-    st.caption(
-        "São grandezas físicas diferentes. A comparação é temporal e "
-        "exploratória; não implica equivalência entre os percentuais."
-    )
-    fig_comp = px.line(
-        df,
-        x="timestamp",
-        y="umidade_solo",
-        color="origem",
-        labels={
-            "timestamp": "Data e hora",
-            "umidade_solo": "Umidade do solo (%)",
-            "origem": "Origem"
-        }
-    )
-    fig_comp.add_scatter(
-        x=df_clima["timestamp"],
-        y=df_clima["umidade_relativa"],
-        mode="lines+markers",
-        name="Umidade relativa do ar (%)"
-    )
-    fig_comp.update_layout(
-        hovermode="x unified",
-        yaxis_title="Percentual (%)",
-        legend_title="Variáveis"
-    )
-    st.plotly_chart(fig_comp, use_container_width=True)
+
+# Temperatura do ar
+
+fig_temp = px.line(
+    df,
+    x="intervalo",
+    y="temperatura_ar",
+    markers=True,
+    title="Temperatura do ar",
+    labels={
+        "intervalo": "Data e horário",
+        "temperatura_ar": "Temperatura (°C)"
+    }
+)
+
+fig_temp.update_layout(template="plotly_white")
+
+st.plotly_chart(fig_temp, use_container_width=True)
+
+
+# Umidade relativa do ar
+
+fig_ur = px.line(
+    df,
+    x="intervalo",
+    y="umidade_relativa",
+    markers=True,
+    title="Umidade relativa do ar",
+    labels={
+        "intervalo": "Data e horário",
+        "umidade_relativa": "Umidade relativa (%)"
+    }
+)
+
+fig_ur.update_layout(template="plotly_white")
+
+st.plotly_chart(fig_ur, use_container_width=True)
+
+
+# ============================================================
+# 9. COMPARAÇÃO SOLO E ATMOSFERA
+# ============================================================
 
 st.divider()
+
+st.header("Comparação exploratória: solo e atmosfera")
+
 st.caption(
-    "As medições físicas são identificadas como ESP32_REAL; dados de "
-    "simulação permanecem identificados como SIMULADO. A temperatura "
-    "do solo não é medida pelo sensor atual. Dados meteorológicos são "
-    "obtidos pela API Open-Meteo."
+    "Umidade do solo e umidade relativa do ar são "
+    "grandezas físicas diferentes. A comparação é temporal "
+    "e não implica equivalência entre os percentuais."
+)
+
+fig_comp = px.line(
+    df,
+    x="intervalo",
+    y=[
+        "umidade_solo_media",
+        "umidade_relativa"
+    ],
+    markers=True,
+    title="Umidade estimada do solo e umidade relativa do ar",
+    labels={
+        "intervalo": "Data e horário",
+        "value": "Percentual (%)",
+        "variable": "Variável"
+    }
+)
+
+fig_comp.update_layout(
+    template="plotly_white",
+    hovermode="x unified"
+)
+
+st.plotly_chart(
+    fig_comp,
+    use_container_width=True
+)
+
+
+# ============================================================
+# 10. TABELA DE DADOS INTEGRADOS
+# ============================================================
+
+st.divider()
+
+st.header("Base integrada de dados")
+
+colunas = [
+    "intervalo",
+    "umidade_solo_media",
+    "quantidade_medicoes",
+    "adc_medio",
+    "temperatura_ar",
+    "umidade_relativa",
+    "precipitacao",
+    "velocidade_vento"
+]
+
+st.dataframe(
+    df[colunas].sort_values(
+        "intervalo",
+        ascending=False
+    ),
+    hide_index=True,
+    use_container_width=True
+)
+
+
+# ============================================================
+# 11. LIMITAÇÕES
+# ============================================================
+
+st.divider()
+
+st.subheader("Observações metodológicas")
+
+st.info(
+    "A umidade do solo é uma estimativa calculada a partir "
+    "das leituras ADC. A calibração física do sensor ainda "
+    "não foi validada experimentalmente. "
+    "A temperatura do solo não foi medida. "
+    "Os dados apresentados correspondem ao período histórico "
+    "de coleta e não representam monitoramento em tempo real."
+)
+
+st.caption(
+    "Projeto Integrador em Computação IV — UNIVESP | "
+    "Sistema Inteligente de Irrigação"
 )
