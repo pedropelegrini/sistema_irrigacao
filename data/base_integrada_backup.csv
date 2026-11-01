@@ -1,0 +1,2 @@
+﻿intervalo,sensor_id,origem,umidade_solo_media,umidade_solo_min,umidade_solo_max,quantidade_medicoes,adc_medio,adc_min,adc_max,temperatura_solo_media,temperatura_solo_min,temperatura_solo_max,temperatura_ar,umidade_relativa,precipitacao,velocidade_vento
+2026-10-31 11:30:00-03:00,ESP32_01,ESP32_REAL,58.550000000000004,0.0,100.0,22,2290.0454545454545,1019.0,3531.0,,,,30.7,48.0,0.0,11.8
