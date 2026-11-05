@@ -1,5 +1,3 @@
-[README_Sistema_IoT_Irrigacao.md](https://github.com/user-attachments/files/34430750/README_Sistema_IoT_Irrigacao.md)[# Sistema IoT para Monitoramento e Irrigação
-
 Projeto Integrador IV --- UNIVESP\
 **Título:** Sistema IoT para Monitoramento e Irrigação\
 **Local de referência:** SENAI "Euclides Facchini", Votuporanga -- SP
